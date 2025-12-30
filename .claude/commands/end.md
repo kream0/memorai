@@ -24,7 +24,7 @@ Update `LAST_SESSION.md` with:
 If significant work was done, store key learnings:
 
 ```bash
-bunx memorai save [category] "[Title]" "[Key insight or decision]"
+bunx memorai save [category] "[Title]" --content "[Key insight or decision]"
 ```
 
 Categories: architecture, decisions, reports, summaries, structure, notes

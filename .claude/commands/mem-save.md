@@ -33,7 +33,7 @@ Save information to Memorai long-term memory.
 5. **Store the memory**:
 
 ```bash
-bunx memorai save "<category>" "<title>" "<content>" --tags "<tag1,tag2>" --importance <1-10>
+bunx memorai save "<category>" "<title>" --content "<content>" --tags "<tag1,tag2>" --importance <1-10>
 ```
 
 6. **Confirm**: Report the memory ID and summary back to the user.

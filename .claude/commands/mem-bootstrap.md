@@ -37,6 +37,6 @@ After reviewing the bootstrap output, store important findings:
 bunx memorai bootstrap
 
 # 2. Review findings and store key ones
-bunx memorai save architecture "Project Architecture" "Tech stack..."
-bunx memorai save decisions "Database Selection" "Chose PostgreSQL..."
+bunx memorai save architecture "Project Architecture" --content "Tech stack..."
+bunx memorai save decisions "Database Selection" --content "Chose PostgreSQL..."
 ```
