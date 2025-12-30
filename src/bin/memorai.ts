@@ -5,6 +5,25 @@ import { fileURLToPath } from 'node:url';
 import { MemoraiClient } from '../client.js';
 import type { Category } from '../types/memory.js';
 import { CATEGORIES } from '../types/memory.js';
+import {
+  getContext,
+  formatForClaude,
+  type ContextMode,
+} from '../operations/context.js';
+import {
+  installGlobalHooks,
+  uninstallGlobalHooks,
+  areHooksInstalled,
+} from '../operations/hooks.js';
+import {
+  analyzeFiles,
+  formatManifest,
+  generateExtractionTasks,
+  generateExtractorPrompt,
+  generateSynthesizerPrompt,
+  estimateProcessingTime,
+  getLearnInstructions,
+} from '../operations/learn/index.js';
 
 const program = new Command();
 
@@ -38,9 +57,21 @@ function output(data: unknown): void {
 program
   .command('init')
   .description('Initialize .memorai/ directory and database')
-  .action(() => {
+  .option('--skip-hooks', 'Skip installing Claude Code hooks')
+  .action((options) => {
     const client = getClient();
     const result = client.init();
+
+    // Install global hooks unless skipped
+    if (result.success && !options.skipHooks) {
+      const hookResult = installGlobalHooks();
+      (result as any).hooks = {
+        installed: hookResult.success,
+        path: hookResult.path,
+        message: hookResult.message,
+      };
+    }
+
     output(result);
     process.exit(result.success ? 0 : 1);
   });
@@ -274,6 +305,291 @@ program
       count: results.length,
       memories: results,
     });
+  });
+
+// context command - for Claude Code hooks
+program
+  .command('context')
+  .description('Get memory context for Claude Code hooks')
+  .option('--mode <mode>', 'Context mode: session or prompt', 'session')
+  .option('--recent <n>', 'Number of recent memories (session mode)', '7')
+  .option('--limit <n>', 'Max relevant memories (prompt mode)', '5')
+  .option('--query <text>', 'Search query (prompt mode)')
+  .option('--stdin', 'Read prompt from stdin JSON')
+  .option('--skip-ids <ids>', 'Comma-separated IDs to skip')
+  .option('--format <format>', 'Output format: claude or json', 'claude')
+  .option('--max-tokens <n>', 'Maximum tokens to output', '2000')
+  .action(async (options) => {
+    const mode = options.mode as ContextMode;
+    let query = options.query;
+
+    // Read query from stdin if --stdin flag is set
+    if (options.stdin && mode === 'prompt') {
+      try {
+        const chunks: Buffer[] = [];
+        for await (const chunk of process.stdin) {
+          chunks.push(chunk as Buffer);
+        }
+        const input = Buffer.concat(chunks).toString('utf-8').trim();
+
+        if (input) {
+          try {
+            // Try to parse as JSON (from Claude Code hook)
+            const json = JSON.parse(input);
+            query = json.prompt || json.message || json.content || input;
+          } catch {
+            // Not JSON, use raw input as query
+            query = input;
+          }
+        }
+      } catch {
+        // Stdin read failed, continue without query
+      }
+    }
+
+    const skipIds = options.skipIds
+      ? options.skipIds.split(',').map((id: string) => id.trim())
+      : undefined;
+
+    const result = getContext({
+      mode,
+      recent: parseInt(options.recent, 10),
+      limit: parseInt(options.limit, 10),
+      query,
+      skipIds,
+      maxTokens: parseInt(options.maxTokens, 10),
+      format: options.format as 'claude' | 'json',
+    });
+
+    if (options.format === 'json') {
+      output(result);
+    } else {
+      // Claude format - output directly to stdout
+      const formatted = formatForClaude(result);
+      if (formatted) {
+        console.log(formatted);
+      }
+    }
+  });
+
+// hooks command - manage Claude Code hooks
+program
+  .command('hooks')
+  .description('Manage Claude Code hooks for memory preloading')
+  .option('--install', 'Install hooks to ~/.claude/settings.json')
+  .option('--uninstall', 'Remove Memorai hooks')
+  .option('--status', 'Check if hooks are installed')
+  .action((options) => {
+    if (options.status || (!options.install && !options.uninstall)) {
+      const installed = areHooksInstalled();
+      output({
+        installed,
+        message: installed
+          ? 'Memorai hooks are installed'
+          : 'Memorai hooks are not installed',
+      });
+      return;
+    }
+
+    if (options.install) {
+      const result = installGlobalHooks();
+      output(result);
+      process.exit(result.success ? 0 : 1);
+    }
+
+    if (options.uninstall) {
+      const result = uninstallGlobalHooks();
+      output(result);
+      process.exit(result.success ? 0 : 1);
+    }
+  });
+
+// learn command - AI-powered documentation processing
+program
+  .command('learn <input>')
+  .description('Process documentation files using AI agents')
+  .option('--dry-run', 'Analyze only, show what would be extracted')
+  .option('--preview', 'Show extractions before storing')
+  .option('--max-files <n>', 'Maximum files to process', '20')
+  .option('--max-memories <n>', 'Maximum memories to create', '100')
+  .option('--importance-min <n>', 'Minimum importance threshold (1-10)', '3')
+  .option('--parallel <n>', 'Max concurrent extraction agents', '3')
+  .option('--resume <file>', 'Resume from checkpoint file')
+  .option('--output <file>', 'Save detailed report to file')
+  .option('--json', 'Output JSON for agent consumption')
+  .action(async (input: string, options) => {
+    const client = getClient();
+    const stats = client.stats();
+
+    if (!stats.initialized) {
+      output({
+        success: false,
+        error: 'Memorai not initialized. Run: memorai init',
+      });
+      process.exit(1);
+    }
+
+    try {
+      // Phase 1: Analyze files
+      console.log('Analyzing files...');
+      const manifest = await analyzeFiles(
+        input,
+        process.cwd(),
+        parseInt(options.maxFiles, 10)
+      );
+
+      if (manifest.files.length === 0) {
+        output({
+          success: false,
+          error: 'No markdown files found matching the pattern',
+        });
+        process.exit(1);
+      }
+
+      // Show manifest
+      console.log('');
+      console.log(formatManifest(manifest));
+      console.log('');
+      console.log(`Estimated processing time: ${estimateProcessingTime(manifest, parseInt(options.parallel, 10))}`);
+      console.log('');
+
+      if (options.dryRun) {
+        // Dry run - just show what would be done
+        const tasks = generateExtractionTasks(manifest, process.cwd(), parseInt(options.parallel, 10));
+
+        if (options.json) {
+          output({
+            mode: 'dry-run',
+            manifest,
+            taskCount: tasks.length,
+            instructions: getLearnInstructions(),
+          });
+        } else {
+          console.log('DRY RUN - No extraction will be performed.');
+          console.log('');
+          console.log('To process these files, run without --dry-run from within Claude Code.');
+          console.log('');
+          console.log(getLearnInstructions());
+        }
+        process.exit(0);
+      }
+
+      // Generate extraction tasks for Claude Code
+      const tasks = generateExtractionTasks(manifest, process.cwd(), parseInt(options.parallel, 10));
+
+      if (options.json) {
+        // Output structured data for Claude Code to process
+        output({
+          mode: 'extract',
+          manifest,
+          tasks: tasks.map((t) => ({
+            id: t.id,
+            file: t.file.relativePath,
+            chunk: t.chunk,
+            prompt: generateExtractorPrompt(t),
+          })),
+          synthesizePrompt: null, // Will be generated after extraction
+          options: {
+            maxMemories: parseInt(options.maxMemories, 10),
+            importanceMin: parseInt(options.importanceMin, 10),
+            parallel: parseInt(options.parallel, 10),
+          },
+        });
+      } else {
+        // Human-readable instructions
+        console.log('='.repeat(60));
+        console.log('MEMORAI LEARN - AI Documentation Processing');
+        console.log('='.repeat(60));
+        console.log('');
+        console.log('This command requires Claude Code to spawn extraction agents.');
+        console.log('');
+        console.log('Next steps:');
+        console.log('1. Copy the extraction tasks below');
+        console.log('2. Use the Task tool to spawn learn-extractor agents');
+        console.log('3. Collect the extraction results');
+        console.log('4. Run memorai learn-synthesize with the results');
+        console.log('');
+        console.log(`Tasks to process: ${tasks.length}`);
+        console.log('');
+
+        // Show first few tasks as example
+        const sampleTasks = tasks.slice(0, 3);
+        console.log('Example task prompts:');
+        for (const task of sampleTasks) {
+          console.log('');
+          console.log(`--- Task: ${task.id} ---`);
+          console.log(generateExtractorPrompt(task));
+        }
+
+        if (tasks.length > 3) {
+          console.log('');
+          console.log(`... and ${tasks.length - 3} more tasks`);
+        }
+
+        console.log('');
+        console.log('Use --json flag for machine-readable output.');
+      }
+
+    } catch (error) {
+      output({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      process.exit(1);
+    }
+  });
+
+// learn-synthesize command - finalize learning process
+program
+  .command('learn-synthesize')
+  .description('Synthesize extractions into memories (internal use)')
+  .option('--stdin', 'Read extractions from stdin JSON')
+  .option('--max-memories <n>', 'Maximum memories to create', '100')
+  .option('--importance-min <n>', 'Minimum importance threshold', '3')
+  .action(async () => {
+    const client = getClient();
+
+    try {
+      // Read extractions from stdin
+      const chunks: Buffer[] = [];
+      for await (const chunk of process.stdin) {
+        chunks.push(chunk as Buffer);
+      }
+      const input = Buffer.concat(chunks).toString('utf-8').trim();
+
+      if (!input) {
+        output({ success: false, error: 'No input provided' });
+        process.exit(1);
+      }
+
+      const data = JSON.parse(input);
+      const extractions = data.extractions || [];
+      const allMemories = client.listAll(1000);
+      const existingTitles = Object.values(allMemories)
+        .flat()
+        .map((m) => m.title);
+
+      // Generate synthesizer prompt
+      const prompt = generateSynthesizerPrompt(
+        extractions,
+        data.projectContext || 'Documentation project',
+        existingTitles
+      );
+
+      output({
+        mode: 'synthesize',
+        extractionCount: extractions.length,
+        existingMemoryCount: existingTitles.length,
+        prompt,
+      });
+
+    } catch (error) {
+      output({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      process.exit(1);
+    }
   });
 
 // Parse arguments

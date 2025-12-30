@@ -1,15 +1,48 @@
 # TODO - Memorai Development
 
-**Last Updated:** 2025-12-30 (Session 24)
+**Last Updated:** 2025-12-30 (Session 28)
 
 ---
 
 ## Quick Resume
 
-**Current Task:** Memorai v1.0 Complete - Ready for npm publish
-**Status:** Phases 1-2 complete, GitHub published, all features tested
+**Current Task:** All core features complete
+**Status:** Full implementation done, Memory Protocol integrated
 **Tests:** 25/25 passing
+**Memories:** 24 total (16 Claude Code docs + 8 project)
 **GitHub:** https://github.com/kream0/memorai.git
+**Next:** Use and iterate - memories accumulate with usage
+
+---
+
+## Session 28: Learn Feature + Memory Protocol - COMPLETE
+
+| Task | Status |
+|------|--------|
+| Fix 3 TypeScript errors | Done |
+| Full pipeline test (106 extractions) | Done |
+| Import Claude Code docs as memories | Done (16 memories) |
+| Add Memory Protocol to CLAUDE.md | Done |
+| Update /start and /end commands | Done |
+
+---
+
+## Session 25: Automatic Memory Preloading ✅ COMPLETE
+
+### Goal
+Make Claude Code automatically access relevant memories before processing user requests.
+
+### Implementation
+| Task | Status |
+|------|--------|
+| Create `src/operations/context.ts` | Done |
+| Create `src/operations/hooks.ts` | Done |
+| Add `memorai context` command | Done |
+| Add `memorai hooks` command | Done |
+| Update `memorai init` to install hooks | Done |
+| Add getContext() to MemoraiClient | Done |
+| Update CLAUDE.md documentation | Done |
+| Test all new features | Done |
 
 ---
 
@@ -50,34 +83,8 @@ Separate memorai into a focused long-term memory NPM package, and integrate supe
 | Update slash commands to use TypeScript CLI | Done |
 | Clean up obsolete docs | Done |
 
-### Phase 3: Add Supervisor Features to Autonoma
-| Task | Status |
-|------|--------|
-| Create `src/verification/` (objective verification) | Pending |
-| Create `src/human-queue/` (blocker handling) | Pending |
-| Create `src/retry/` (error context injection) | Pending |
-| Add 40% objective reminder to context-monitor | Pending |
-| Add priority rebalancing to queue | Pending |
-| Add `autonoma respond` CLI command | Pending |
-| Add TUI notifications view | Pending |
-
-### Phase 4: Memorai Integration in Autonoma
-| Task | Status |
-|------|--------|
-| Add memorai as npm dependency | Pending |
-| Init memorai on `autonoma start` | Pending |
-| Search memories before phase execution | Pending |
-| Store learnings after task completion | Pending |
-| Store handoffs as memories | Pending |
-| Migrate existing autonoma memory data | Pending |
-
-### Phase 5: Testing & Documentation
-| Task | Status |
-|------|--------|
-| Test memorai standalone | Done |
-| Test autonoma with memorai | Pending (autonoma work) |
-| Update READMEs | Done |
-| Update CLAUDE.md files | Done |
+### Phase 3-5: Autonoma Integration ✅ COMPLETE
+Completed directly in the autonoma repo.
 
 ---
 
@@ -85,5 +92,4 @@ Separate memorai into a focused long-term memory NPM package, and integrate supe
 
 See `BACKLOG.md` for:
 - Semantic memory (ONNX embeddings)
-- Leash integration
-- CI/CD event handling
+- MCP Server option

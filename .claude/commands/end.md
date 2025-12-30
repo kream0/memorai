@@ -19,15 +19,25 @@ Update `LAST_SESSION.md` with:
 - Update Quick Resume section with next task
 - Add any new tasks discovered
 
-## Step 3: Memorai Knowledge Capture
+## Step 3: Memory Reflection
 
-If significant work was done, store key learnings:
+Think about what you learned or decided during this session that should be remembered:
+
+- Did you make any architectural decisions that weren't saved?
+- Did you discover any gotchas or caveats?
+- Did you learn something about the codebase that future sessions should know?
+- Did you find a pattern or approach that worked well?
+- Did you hit any errors with non-obvious solutions?
+
+For each missed memory, save it now:
 
 ```bash
-bunx memorai save [category] "[Title]" --content "[Key insight or decision]"
+memorai save [category] "[Title]" --content "[insight]" --importance [1-10]
 ```
 
-Categories: architecture, decisions, reports, summaries, structure, notes
+Categories: `architecture`, `decisions`, `notes`, `structure`
+
+**Important:** Don't create summaries of the session - save specific, actionable knowledge that would help you (or another Claude) in future sessions.
 
 ## Step 4: Handoff Notes
 
@@ -35,4 +45,4 @@ Add any context the next session will need to LAST_SESSION.md under "Handoff Not
 
 ---
 
-Provide a brief summary of what was documented.
+Provide a brief summary of what was documented and any memories saved.

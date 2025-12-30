@@ -11,6 +11,18 @@ import {
   extractStructure,
   extractTracking,
 } from './operations/bootstrap.js';
+import {
+  getContext as getContextOp,
+  formatForClaude,
+  type ContextOptions,
+  type ContextResult,
+} from './operations/context.js';
+import {
+  installGlobalHooks,
+  uninstallGlobalHooks,
+  areHooksInstalled,
+  type HookInstallResult,
+} from './operations/hooks.js';
 import type {
   BootstrapScanResult,
   Category,
@@ -170,6 +182,42 @@ export class MemoraiClient {
    */
   extractTracking(): ReturnType<typeof extractTracking> {
     return extractTracking(this.projectDir);
+  }
+
+  /**
+   * Get context for Claude Code hooks.
+   * Returns recent memories (session mode) or relevant memories (prompt mode).
+   */
+  getContext(options: ContextOptions): ContextResult {
+    return getContextOp(options, this.dbPath);
+  }
+
+  /**
+   * Format context result for Claude Code consumption.
+   */
+  formatContext(result: ContextResult): string {
+    return formatForClaude(result);
+  }
+
+  /**
+   * Install Claude Code hooks for automatic memory preloading.
+   */
+  installHooks(): HookInstallResult {
+    return installGlobalHooks();
+  }
+
+  /**
+   * Uninstall Claude Code hooks.
+   */
+  uninstallHooks(): HookInstallResult {
+    return uninstallGlobalHooks();
+  }
+
+  /**
+   * Check if Claude Code hooks are installed.
+   */
+  hooksInstalled(): boolean {
+    return areHooksInstalled();
   }
 
   /**
