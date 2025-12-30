@@ -62,10 +62,10 @@ bunx memorai show abc12345
 
 ```bash
 # Store memory
-bunx memorai save decisions "Database Selection" "Chose PostgreSQL because..."
+bunx memorai save decisions "Database Selection" --content "Chose PostgreSQL because..."
 
 # With tags and importance
-bunx memorai save architecture "API Design" "REST endpoints..." --tags api,rest --importance 8
+bunx memorai save architecture "API Design" --content "REST endpoints..." --tags api,rest --importance 8
 ```
 
 ### List and Browse
