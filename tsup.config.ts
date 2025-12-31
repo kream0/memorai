@@ -22,7 +22,7 @@ export default defineConfig([
     target: 'node18',
     outDir: 'dist/bin',
     banner: {
-      js: '#!/usr/bin/env node',
+      js: '#!/usr/bin/env bun',
     },
     external: ['bun:sqlite'],
   },

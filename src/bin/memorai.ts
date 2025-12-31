@@ -24,6 +24,30 @@ import {
   estimateProcessingTime,
   getLearnInstructions,
 } from '../operations/learn/index.js';
+import {
+  analyzeCodebase,
+  createPartitions,
+  formatManifestSummary,
+  formatPartitionSummary,
+  generateExplorationTasks,
+  generateExplorerPrompt,
+  generateExplorationInstructions,
+  batchTasks,
+  estimateExplorationTime,
+  generateSynthesizerPrompt as generateCodebaseSynthesizerPrompt,
+  synthesizeLocally,
+  previewMemories,
+  ingestKnowledge,
+  formatIngestionResult,
+  createCheckpoint,
+  saveCheckpoint,
+  loadCheckpoint,
+  shouldResume,
+  getResumedAnalyses,
+  formatCheckpointStatus,
+  SCAN_USAGE,
+  type SynthesizerInput,
+} from '../operations/codebase/index.js';
 
 const program = new Command();
 
@@ -582,6 +606,300 @@ program
         existingMemoryCount: existingTitles.length,
         prompt,
       });
+
+    } catch (error) {
+      output({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      process.exit(1);
+    }
+  });
+
+// scan command - AI-powered codebase analysis
+program
+  .command('scan [path]')
+  .description('Analyze codebase and extract knowledge as memories')
+  .option('--dry-run', 'Analyze only, show partition plan (no agents)')
+  .option('--preview', 'Show insights before storing memories')
+  .option('--partitions <n>', 'Maximum partitions (default: auto-detect)')
+  .option('--parallel <n>', 'Max concurrent exploration agents', '3')
+  .option('--include <glob>', 'Include file patterns (can be used multiple times)', (val, acc: string[]) => { acc.push(val); return acc; }, [])
+  .option('--exclude <glob>', 'Exclude file patterns (can be used multiple times)', (val, acc: string[]) => { acc.push(val); return acc; }, [])
+  .option('--min-importance <n>', 'Minimum importance threshold (1-10)', '3')
+  .option('--max-memories <n>', 'Maximum memories to create', '100')
+  .option('--resume', 'Resume from checkpoint')
+  .option('--output <file>', 'Save analysis report to file')
+  .option('--json', 'Output JSON for agent consumption')
+  .action(async (inputPath: string | undefined, options) => {
+    const projectPath = inputPath || process.cwd();
+    const client = getClient();
+    const stats = client.stats();
+
+    if (!stats.initialized) {
+      output({
+        success: false,
+        error: 'Memorai not initialized. Run: memorai init',
+      });
+      process.exit(1);
+    }
+
+    try {
+      // Check for resume
+      if (options.resume) {
+        const manifest = analyzeCodebase(projectPath, {
+          include: options.include.length > 0 ? options.include : undefined,
+          exclude: options.exclude.length > 0 ? options.exclude : undefined,
+        });
+
+        const resumeInfo = shouldResume(projectPath, manifest);
+        if (!resumeInfo.resume || !resumeInfo.checkpoint) {
+          console.log(resumeInfo.reason);
+          console.log('Starting fresh analysis...');
+        } else {
+          console.log(formatCheckpointStatus(resumeInfo.checkpoint));
+          console.log('');
+          console.log('Resuming from checkpoint...');
+          // TODO: Implement full resume logic
+          // For now, just show status
+          process.exit(0);
+        }
+      }
+
+      // Phase 1: Analyze codebase
+      console.log('Analyzing codebase...');
+      const manifest = analyzeCodebase(projectPath, {
+        include: options.include.length > 0 ? options.include : undefined,
+        exclude: options.exclude.length > 0 ? options.exclude : undefined,
+      });
+
+      if (manifest.totalFiles === 0) {
+        output({
+          success: false,
+          error: 'No source files found matching the patterns',
+        });
+        process.exit(1);
+      }
+
+      // Create partitions
+      const maxPartitions = options.partitions ? parseInt(options.partitions, 10) : undefined;
+      const partitions = createPartitions(manifest, { maxPartitions });
+      manifest.partitions = partitions;
+      manifest.globalContext.totalPartitions = partitions.length;
+
+      // Show manifest
+      console.log('');
+      console.log(formatManifestSummary(manifest));
+      console.log('');
+      console.log(formatPartitionSummary(partitions));
+      console.log('');
+
+      // Estimate time
+      const tasks = generateExplorationTasks(manifest);
+      const { batches, estimatedMinutes } = estimateExplorationTime(
+        tasks,
+        parseInt(options.parallel, 10)
+      );
+      console.log(`Estimated time: ~${estimatedMinutes} minutes (${batches} batches)`);
+      console.log('');
+
+      if (options.dryRun) {
+        // Dry run - just show what would be done
+        if (options.json) {
+          output({
+            mode: 'dry-run',
+            manifest: {
+              projectName: manifest.projectName,
+              projectDir: manifest.projectDir,
+              totalFiles: manifest.totalFiles,
+              totalTokens: manifest.totalTokens,
+              languages: manifest.languages,
+              frameworks: manifest.globalContext.frameworks,
+              skippedFiles: manifest.skippedFiles.length,
+            },
+            partitions: partitions.map(p => ({
+              id: p.id,
+              description: p.description,
+              files: p.files.length,
+              tokens: p.estimatedTokens,
+            })),
+            taskCount: tasks.length,
+          });
+        } else {
+          console.log('DRY RUN - No exploration will be performed.');
+          console.log('');
+          console.log('To analyze this codebase, run without --dry-run from within Claude Code.');
+          console.log('');
+          console.log('The scan command will spawn exploration agents for each partition,');
+          console.log('then synthesize findings into structured memories.');
+        }
+        process.exit(0);
+      }
+
+      // Generate exploration instructions
+      if (options.json) {
+        // Output structured data for Claude Code to process
+        output({
+          mode: 'explore',
+          manifest: {
+            projectName: manifest.projectName,
+            projectDir: manifest.projectDir,
+            totalFiles: manifest.totalFiles,
+            totalTokens: manifest.totalTokens,
+            hash: manifest.hash,
+          },
+          globalContext: manifest.globalContext,
+          tasks: tasks.map(t => ({
+            id: t.id,
+            partition: {
+              id: t.partition.id,
+              description: t.partition.description,
+              files: t.partition.files.length,
+              tokens: t.partition.estimatedTokens,
+            },
+            prompt: generateExplorerPrompt(t),
+          })),
+          options: {
+            parallel: parseInt(options.parallel, 10),
+            maxMemories: parseInt(options.maxMemories, 10),
+            importanceMin: parseInt(options.minImportance, 10),
+          },
+        });
+      } else {
+        // Human-readable instructions
+        console.log('='.repeat(60));
+        console.log('MEMORAI SCAN - AI Codebase Analysis');
+        console.log('='.repeat(60));
+        console.log('');
+        console.log('This command requires Claude Code to spawn exploration agents.');
+        console.log('');
+        console.log(generateExplorationInstructions(tasks, parseInt(options.parallel, 10)));
+        console.log('');
+        console.log('='.repeat(60));
+        console.log('');
+        console.log('Next steps:');
+        console.log('1. Use the Task tool to spawn codebase-explorer agents for each partition');
+        console.log('2. Collect the analysis results from all explorers');
+        console.log('3. Run memorai scan-synthesize with the results');
+        console.log('');
+        console.log('Example agent invocation:');
+        console.log('');
+        console.log('Task: codebase-explorer');
+        console.log(`Prompt: ${generateExplorerPrompt(tasks[0]!).slice(0, 200)}...`);
+        console.log('');
+        console.log('Use --json flag for machine-readable output.');
+
+        // Save checkpoint
+        const checkpoint = createCheckpoint(manifest);
+        saveCheckpoint(checkpoint, projectPath);
+        console.log('');
+        console.log(`Checkpoint saved to: ${projectPath}/.memorai/scan-checkpoint.json`);
+      }
+
+    } catch (error) {
+      output({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      process.exit(1);
+    }
+  });
+
+// scan-synthesize command - finalize codebase scanning
+program
+  .command('scan-synthesize')
+  .description('Synthesize exploration results into memories (internal use)')
+  .option('--stdin', 'Read analyses from stdin JSON')
+  .option('--max-memories <n>', 'Maximum memories to create', '100')
+  .option('--importance-min <n>', 'Minimum importance threshold', '3')
+  .option('--preview', 'Show memories before storing')
+  .option('--local', 'Use local synthesis (no agent)')
+  .action(async (options) => {
+    const client = getClient();
+
+    try {
+      // Read analyses from stdin
+      const chunks: Buffer[] = [];
+      for await (const chunk of process.stdin) {
+        chunks.push(chunk as Buffer);
+      }
+      const input = Buffer.concat(chunks).toString('utf-8').trim();
+
+      if (!input) {
+        output({ success: false, error: 'No input provided' });
+        process.exit(1);
+      }
+
+      const data = JSON.parse(input) as {
+        globalContext: SynthesizerInput['globalContext'];
+        partitionAnalyses: SynthesizerInput['partitionAnalyses'];
+        projectName?: string;
+      };
+
+      const allMemories = client.listAll(1000);
+      const existingTitles = Object.values(allMemories)
+        .flat()
+        .map((m) => m.title);
+
+      if (options.local) {
+        // Local synthesis without agent
+        const result = synthesizeLocally({
+          globalContext: data.globalContext,
+          partitionAnalyses: data.partitionAnalyses,
+          existingMemoryTitles: existingTitles,
+        });
+
+        if (options.preview) {
+          // Preview what would be stored
+          console.log(previewMemories(
+            result.knowledge,
+            data.projectName ?? data.globalContext.projectName,
+            {
+              importanceMin: parseInt(options.importanceMin, 10),
+              maxMemories: parseInt(options.maxMemories, 10),
+            }
+          ));
+          process.exit(0);
+        }
+
+        // Ingest memories
+        const ingestionResult = await ingestKnowledge(
+          client,
+          result.knowledge,
+          {
+            projectName: data.projectName ?? data.globalContext.projectName,
+            importanceMin: parseInt(options.importanceMin, 10),
+            maxMemories: parseInt(options.maxMemories, 10),
+          }
+        );
+
+        console.log(formatIngestionResult(ingestionResult));
+        output({
+          success: true,
+          memoriesCreated: ingestionResult.memoriesCreated,
+          memoriesSkipped: ingestionResult.memoriesSkipped,
+          byCategory: ingestionResult.byCategory,
+        });
+
+      } else {
+        // Generate synthesizer prompt for agent
+        const prompt = generateCodebaseSynthesizerPrompt({
+          globalContext: data.globalContext,
+          partitionAnalyses: data.partitionAnalyses,
+          existingMemoryTitles: existingTitles,
+        });
+
+        output({
+          mode: 'synthesize',
+          analysisCount: data.partitionAnalyses.length,
+          insightCount: data.partitionAnalyses.reduce(
+            (sum, a) => sum + a.insights.length,
+            0
+          ),
+          existingMemoryCount: existingTitles.length,
+          prompt,
+        });
+      }
 
     } catch (error) {
       output({

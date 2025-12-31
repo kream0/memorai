@@ -1,10 +1,21 @@
 # Backlog - Memorai Long-Term Roadmap
 
-**Last Reviewed:** 2025-12-27
+**Last Reviewed:** 2025-12-31
 
 ---
 
 ## High Priority
+
+### Test `memorai scan` on Real Codebases
+
+The scan feature is implemented but needs real-world testing:
+- [ ] Test on a large TypeScript monorepo (500k+ tokens)
+- [ ] Test on a Python codebase
+- [ ] Verify multi-partition exploration works correctly
+- [ ] Test synthesis with multiple partition results
+- [ ] Benchmark memory quality vs `memorai learn` on docs
+
+---
 
 ### Autonomous Agent System ✅ COMPLETE
 

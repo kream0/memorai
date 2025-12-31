@@ -51,6 +51,47 @@ memorai status
 memorai bootstrap
 ```
 
+### AI-Powered Knowledge Extraction
+
+#### Learn from Documentation
+
+Process markdown documentation using AI agents:
+
+```bash
+# Analyze docs (dry run)
+memorai learn ./docs --dry-run
+
+# Process and extract knowledge
+memorai learn ./docs --preview
+```
+
+#### Scan Codebase
+
+Analyze source code using parallel exploration agents:
+
+```bash
+# Dry run - see partition plan
+memorai scan . --dry-run
+
+# Full analysis with preview
+memorai scan /path/to/project --preview
+
+# Resume interrupted scan
+memorai scan . --resume
+
+# Custom filtering
+memorai scan . --include "src/**/*.ts" --exclude "**/*.test.ts"
+```
+
+**How `memorai scan` works:**
+
+1. **Analyze** - Scans codebase, estimates tokens, creates intelligent partitions
+2. **Explore** - Spawns parallel Opus agents to analyze each partition
+3. **Synthesize** - Master agent merges and deduplicates findings
+4. **Ingest** - Transforms insights into structured memories
+
+Supports codebases from 100k to 5M+ tokens via dynamic partitioning.
+
 ### Programmatic API
 
 ```typescript
@@ -103,6 +144,26 @@ memorai.update('abc12345', {
   title: 'Updated Title',
   importance: 9
 });
+```
+
+## Automatic Context Preloading
+
+Memorai automatically preloads relevant memories into Claude Code sessions via hooks:
+
+- **SessionStart**: Recent memories are loaded when you start Claude Code
+- **UserPromptSubmit**: Relevant memories are loaded before each prompt is processed
+
+Hooks are installed automatically when you run `memorai init`.
+
+```bash
+# Check hook status
+memorai hooks --status
+
+# Manually install hooks
+memorai hooks --install
+
+# Remove hooks
+memorai hooks --uninstall
 ```
 
 ## Categories
@@ -164,6 +225,9 @@ bun run typecheck
 
 # Build
 bun run build
+
+# Link globally for development
+bun link
 ```
 
 ## License
